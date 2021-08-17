@@ -76,7 +76,7 @@ function createTestUtils({
     docFileSource: string,
     expectedMetadata: Optional<
       DocMetadataBase,
-      'source' | 'lastUpdatedBy' | 'lastUpdatedAt' | 'sidebar_label' | 'editUrl'
+      'source' | 'lastUpdatedBy' | 'lastUpdatedAt' | 'editUrl'
     >,
   ) {
     const docFile = await readDoc(docFileSource);
@@ -89,7 +89,6 @@ function createTestUtils({
     expect(metadata).toEqual({
       lastUpdatedBy: undefined,
       lastUpdatedAt: undefined,
-      sidebar_label: undefined,
       editUrl: undefined,
       source: path.posix.join(
         '@site',
@@ -202,6 +201,7 @@ describe('simple site', () => {
       frontMatter: {
         id: 'hello',
         title: 'Hello, World !',
+        sidebar_label: 'Hello sidebar_label',
       },
     });
   });
@@ -231,6 +231,7 @@ describe('simple site', () => {
       frontMatter: {
         id: 'hello',
         title: 'Hello, World !',
+        sidebar_label: 'Hello sidebar_label',
       },
     });
   });
@@ -295,6 +296,7 @@ describe('simple site', () => {
         id: 'baz',
         slug: 'bazSlug.html',
         title: 'baz',
+        pagination_label: 'baz pagination_label',
       },
     });
   });
@@ -353,6 +355,7 @@ describe('simple site', () => {
         id: 'baz',
         slug: 'bazSlug.html',
         title: 'baz',
+        pagination_label: 'baz pagination_label',
       },
     });
 
@@ -452,7 +455,7 @@ describe('simple site', () => {
         }),
       );
     }).toThrowErrorMatchingInlineSnapshot(
-      `"Document id [Hello/world] cannot include \\"/\\"."`,
+      `"Document id \\"Hello/world\\" cannot include slash."`,
     );
   });
 

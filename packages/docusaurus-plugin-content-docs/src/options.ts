@@ -12,18 +12,25 @@ import {
   AdmonitionsSchema,
   URISchema,
 } from '@docusaurus/utils-validation';
+import {GlobExcludeDefault} from '@docusaurus/utils';
+
 import {OptionValidationContext, ValidationResult} from '@docusaurus/types';
 import chalk from 'chalk';
 import admonitions from 'remark-admonitions';
 import {DefaultSidebarItemsGenerator} from './sidebarItemsGenerator';
+import {
+  DefaultNumberPrefixParser,
+  DisabledNumberPrefixParser,
+} from './numberPrefix';
 
-export const DEFAULT_OPTIONS: Omit<PluginOptions, 'id'> = {
+export const DEFAULT_OPTIONS: Omit<PluginOptions, 'id' | 'sidebarPath'> = {
   path: 'docs', // Path to data on filesystem, relative to site dir.
   routeBasePath: 'docs', // URL Route.
   homePageId: undefined, // TODO remove soon, deprecated
   include: ['**/*.{md,mdx}'], // Extensions to include.
-  sidebarPath: 'sidebars.json', // Path to the sidebars configuration file
+  exclude: GlobExcludeDefault,
   sidebarItemsGenerator: DefaultSidebarItemsGenerator,
+  numberPrefixParser: DefaultNumberPrefixParser,
   docLayoutComponent: '@theme/DocPage',
   docItemComponent: '@theme/DocItem',
   remarkPlugins: [],
@@ -33,18 +40,20 @@ export const DEFAULT_OPTIONS: Omit<PluginOptions, 'id'> = {
   showLastUpdateTime: false,
   showLastUpdateAuthor: false,
   admonitions: {},
-  excludeNextVersionDocs: false,
   includeCurrentVersion: true,
   disableVersioning: false,
   lastVersion: undefined,
   versions: {},
   editCurrentVersion: false,
   editLocalizedFiles: false,
+  sidebarCollapsible: true,
+  sidebarCollapsed: true,
 };
 
 const VersionOptionsSchema = Joi.object({
   path: Joi.string().allow('').optional(),
   label: Joi.string().optional(),
+  banner: Joi.string().equal('none', 'unreleased', 'unmaintained').optional(),
 });
 
 const VersionsOptionsSchema = Joi.object()
@@ -62,10 +71,27 @@ export const OptionsSchema = Joi.object({
     .default(DEFAULT_OPTIONS.routeBasePath),
   homePageId: Joi.string().optional(),
   include: Joi.array().items(Joi.string()).default(DEFAULT_OPTIONS.include),
-  sidebarPath: Joi.string().allow('').default(DEFAULT_OPTIONS.sidebarPath),
+  exclude: Joi.array().items(Joi.string()).default(DEFAULT_OPTIONS.exclude),
+  sidebarPath: Joi.alternatives().try(
+    Joi.boolean().invalid(true),
+    Joi.string(),
+  ),
   sidebarItemsGenerator: Joi.function().default(
     () => DEFAULT_OPTIONS.sidebarItemsGenerator,
   ),
+  sidebarCollapsible: Joi.boolean().default(DEFAULT_OPTIONS.sidebarCollapsible),
+  sidebarCollapsed: Joi.boolean().default(DEFAULT_OPTIONS.sidebarCollapsed),
+  numberPrefixParser: Joi.alternatives()
+    .try(
+      Joi.function(),
+      // Convert boolean values to functions
+      Joi.alternatives().conditional(Joi.boolean(), {
+        then: Joi.custom((val) =>
+          val ? DefaultNumberPrefixParser : DisabledNumberPrefixParser,
+        ),
+      }),
+    )
+    .default(() => DEFAULT_OPTIONS.numberPrefixParser),
   docLayoutComponent: Joi.string().default(DEFAULT_OPTIONS.docLayoutComponent),
   docItemComponent: Joi.string().default(DEFAULT_OPTIONS.docItemComponent),
   remarkPlugins: RemarkPluginsSchema.default(DEFAULT_OPTIONS.remarkPlugins),
@@ -83,9 +109,6 @@ export const OptionsSchema = Joi.object({
   showLastUpdateAuthor: Joi.bool().default(
     DEFAULT_OPTIONS.showLastUpdateAuthor,
   ),
-  excludeNextVersionDocs: Joi.bool().default(
-    DEFAULT_OPTIONS.excludeNextVersionDocs,
-  ),
   includeCurrentVersion: Joi.bool().default(
     DEFAULT_OPTIONS.includeCurrentVersion,
   ),
@@ -97,8 +120,32 @@ export const OptionsSchema = Joi.object({
 
 export function validateOptions({
   validate,
-  options,
+  options: userOptions,
 }: OptionValidationContext<PluginOptions>): ValidationResult<PluginOptions> {
+  let options = userOptions;
+
+  if (options.sidebarCollapsible === false) {
+    // When sidebarCollapsible=false and sidebarCollapsed=undefined, we don't want to have the inconsistency warning
+    // We let options.sidebarCollapsible become the default value for options.sidebarCollapsed
+    if (typeof options.sidebarCollapsed === 'undefined') {
+      options = {
+        ...options,
+        sidebarCollapsed: false,
+      };
+    }
+    if (options.sidebarCollapsed) {
+      console.warn(
+        chalk.yellow(
+          'The docs plugin config is inconsistent. It does not make sense to use sidebarCollapsible=false and sidebarCollapsed=true at the same time. sidebarCollapsed=false will be ignored.',
+        ),
+      );
+      options = {
+        ...options,
+        sidebarCollapsed: false,
+      };
+    }
+  }
+
   // TODO remove homePageId before end of 2020
   // "slug: /" is better because the home doc can be different across versions
   if (options.homePageId) {
@@ -107,17 +154,6 @@ export function validateOptions({
         `The docs plugin option homePageId=${options.homePageId} is deprecated. To make a doc the "home", prefer frontmatter: "slug: /"`,
       ),
     );
-  }
-
-  if (typeof options.excludeNextVersionDocs !== 'undefined') {
-    console.log(
-      chalk.red(
-        `The docs plugin option excludeNextVersionDocs=${
-          options.excludeNextVersionDocs
-        } is deprecated. Use the includeCurrentVersion=${!options.excludeNextVersionDocs} option instead!"`,
-      ),
-    );
-    options.includeCurrentVersion = !options.excludeNextVersionDocs;
   }
 
   const normalizedOptions = validate(OptionsSchema, options);

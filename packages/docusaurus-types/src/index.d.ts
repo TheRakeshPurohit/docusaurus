@@ -5,13 +5,15 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// ESLint doesn't understand types dependencies in d.ts
-// eslint-disable-next-line import/no-extraneous-dependencies
-import type {Loader, Configuration, Stats} from 'webpack';
+import type {RuleSetRule, Configuration} from 'webpack';
 import type {Command} from 'commander';
 import type {ParsedUrlQueryInput} from 'querystring';
-import type {MergeStrategy} from 'webpack-merge';
 import type Joi from 'joi';
+
+// Convert webpack-merge webpack-merge enum to union type
+// For type retro-compatible webpack-merge upgrade: we used string literals before)
+// see https://github.com/survivejs/webpack-merge/issues/179
+type MergeStrategy = 'match' | 'merge' | 'append' | 'prepend' | 'replace';
 
 export type ReportingSeverity = 'ignore' | 'log' | 'warn' | 'error' | 'throw';
 
@@ -22,10 +24,12 @@ export type ThemeConfig = {
 export interface DocusaurusConfig {
   baseUrl: string;
   baseUrlIssueBanner: boolean;
-  favicon: string;
+  favicon?: string;
   tagline?: string;
   title: string;
   url: string;
+  // trailingSlash undefined = legacy retrocompatible behavior => /file => /file/index.html
+  trailingSlash: boolean | undefined;
   i18n: I18nConfig;
   onBrokenLinks: ReportingSeverity;
   onBrokenMarkdownLinks: ReportingSeverity;
@@ -59,6 +63,9 @@ export interface DocusaurusConfig {
       }
   )[];
   titleDelimiter?: string;
+  webpack?: {
+    jsLoader: 'babel' | ((isServer: boolean) => RuleSetRule);
+  };
 }
 
 /**
@@ -118,7 +125,10 @@ export interface DocusaurusContext {
   globalData: Record<string, unknown>;
   i18n: I18n;
   codeTranslations: Record<string, string>;
-  isClient: boolean;
+
+  // Don't put mutable values here, to avoid triggering re-renders
+  // We could reconsider that choice if context selectors are implemented
+  // isBrowser: boolean; // Not here on purpose!
 }
 
 export interface Preset {
@@ -171,7 +181,7 @@ export interface LoadContext {
   siteConfig: DocusaurusConfig;
   siteConfigPath: string;
   outDir: string;
-  baseUrl: string;
+  baseUrl: string; // TODO to remove: useless, there's already siteConfig.baseUrl!
   i18n: I18n;
   ssrTemplate?: string;
   codeTranslations: Record<string, string>;
@@ -186,16 +196,10 @@ export interface InjectedHtmlTags {
 export type HtmlTags = string | HtmlTagObject | (string | HtmlTagObject)[];
 
 export interface Props extends LoadContext, InjectedHtmlTags {
+  siteMetadata: DocusaurusSiteMetadata;
   routes: RouteConfig[];
   routesPaths: string[];
-  plugins: Plugin<unknown>[];
-}
-
-/**
- * Same as `Props` but also has webpack stats appended.
- */
-export interface PropsPostBuild extends Props {
-  stats: Stats.ToJsonOutput;
+  plugins: LoadedPlugin[];
 }
 
 export interface PluginContentLoadedActions {
@@ -216,7 +220,7 @@ export type AllContent = Record<
 // TODO improve type (not exposed by postcss-loader)
 export type PostCssOptions = Record<string, unknown> & {plugins: unknown[]};
 
-export interface Plugin<Content> {
+export interface Plugin<Content = unknown> {
   name: string;
   loadContent?(): Promise<Content>;
   contentLoaded?({
@@ -226,14 +230,16 @@ export interface Plugin<Content> {
     content: Content; // the content loaded by this plugin instance
     allContent: AllContent; // content loaded by ALL the plugins
     actions: PluginContentLoadedActions;
-  }): void;
+  }): Promise<void>;
   routesLoaded?(routes: RouteConfig[]): void; // TODO remove soon, deprecated (alpha-60)
-  postBuild?(props: PropsPostBuild): void;
+  postBuild?(props: Props): void;
   postStart?(props: Props): void;
+  // TODO refactor the configureWebpack API surface: use an object instead of multiple params (requires breaking change)
   configureWebpack?(
     config: Configuration,
     isServer: boolean,
     utils: ConfigureWebpackUtils,
+    content: Content,
   ): Configuration & {mergeStrategy?: ConfigureWebpackFnMergeStrategy};
   configurePostCss?(options: PostCssOptions): PostCssOptions;
   getThemePath?(): string;
@@ -241,7 +247,11 @@ export interface Plugin<Content> {
   getPathsToWatch?(): string[];
   getClientModules?(): string[];
   extendCli?(cli: Command): void;
-  injectHtmlTags?(): {
+  injectHtmlTags?({
+    content,
+  }: {
+    content: Content;
+  }): {
     headTags?: HtmlTags;
     preBodyTags?: HtmlTags;
     postBodyTags?: HtmlTags;
@@ -276,6 +286,15 @@ export interface Plugin<Content> {
   }): ThemeConfig;
 }
 
+export type InitializedPlugin<Content = unknown> = Plugin<Content> & {
+  readonly options: PluginOptions;
+  readonly version: DocusaurusPluginVersionInformation;
+};
+
+export type LoadedPlugin<Content = unknown> = InitializedPlugin<Content> & {
+  readonly content: Content;
+};
+
 export type PluginModule = {
   <T, X>(context: LoadContext, options: T): Plugin<X>;
   validateOptions?<T>(data: OptionValidationContext<T>): T;
@@ -293,7 +312,12 @@ export type ConfigurePostCssFn = Plugin<unknown>['configurePostCss'];
 
 export type PluginOptions = {id?: string} & Record<string, unknown>;
 
-export type PluginConfig = [string, PluginOptions] | [string] | string;
+export type PluginConfig =
+  | [string, PluginOptions]
+  | [string]
+  | string
+  | [PluginModule, PluginOptions]
+  | PluginModule;
 
 export interface ChunkRegistry {
   loader: string;
@@ -323,9 +347,11 @@ export interface RouteConfig {
   routes?: RouteConfig[];
   exact?: boolean;
   priority?: number;
+  [propName: string]: unknown;
 }
 
-export interface ThemeAlias {
+// Aliases used for Webpack resolution (when using docusaurus swizzle)
+export interface ThemeAliases {
   [alias: string]: string;
 }
 
@@ -335,15 +361,23 @@ export interface ConfigureWebpackUtils {
     cssOptions: {
       [key: string]: unknown;
     },
-  ) => Loader[];
+  ) => RuleSetRule[];
+  getJSLoader: (options: {
+    isServer: boolean;
+    babelOptions?: Record<string, unknown>;
+  }) => RuleSetRule;
+
+  // TODO deprecated: remove before end of 2021?
   getCacheLoader: (
     isServer: boolean,
     cacheOptions?: Record<string, unknown>,
-  ) => Loader | null;
+  ) => RuleSetRule | null;
+
+  // TODO deprecated: remove before end of 2021?
   getBabelLoader: (
     isServer: boolean,
-    babelOptions?: Record<string, unknown>,
-  ) => Loader;
+    options?: Record<string, unknown>,
+  ) => RuleSetRule;
 }
 
 interface HtmlTagObject {

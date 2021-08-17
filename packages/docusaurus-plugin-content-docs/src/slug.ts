@@ -11,18 +11,24 @@ import {
   isValidPathname,
   resolvePathname,
 } from '@docusaurus/utils';
-import {stripPathNumberPrefixes} from './numberPrefix';
+import {
+  DefaultNumberPrefixParser,
+  stripPathNumberPrefixes,
+} from './numberPrefix';
+import {NumberPrefixParser} from './types';
 
 export default function getSlug({
   baseID,
   frontmatterSlug,
   dirName,
   stripDirNumberPrefixes = true,
+  numberPrefixParser = DefaultNumberPrefixParser,
 }: {
   baseID: string;
   frontmatterSlug?: string;
   dirName: string;
   stripDirNumberPrefixes?: boolean;
+  numberPrefixParser?: NumberPrefixParser;
 }): string {
   const baseSlug = frontmatterSlug || baseID;
   let slug: string;
@@ -30,7 +36,7 @@ export default function getSlug({
     slug = baseSlug;
   } else {
     const dirNameStripped = stripDirNumberPrefixes
-      ? stripPathNumberPrefixes(dirName)
+      ? stripPathNumberPrefixes(dirName, numberPrefixParser)
       : dirName;
     const resolveDirname =
       dirName === '.'
@@ -41,8 +47,8 @@ export default function getSlug({
 
   if (!isValidPathname(slug)) {
     throw new Error(
-      `We couldn't compute a valid slug for document with id=${baseID} in folder=${dirName}
-The slug we computed looks invalid: ${slug}
+      `We couldn't compute a valid slug for document with id "${baseID}" in "${dirName}" directory.
+The slug we computed looks invalid: ${slug}.
 Maybe your slug frontmatter is incorrect or you use weird chars in the file path?
 By using the slug frontmatter, you should be able to fix this error, by using the slug of your choice:
 

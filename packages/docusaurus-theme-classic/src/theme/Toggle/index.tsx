@@ -8,9 +8,10 @@
 import React, {useState, useRef, memo, CSSProperties} from 'react';
 import type {Props} from '@theme/Toggle';
 import {useThemeConfig} from '@docusaurus/theme-common';
-import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import useIsBrowser from '@docusaurus/useIsBrowser';
 
 import clsx from 'clsx';
+import './styles.css';
 import styles from './styles.module.css';
 
 interface IconProps {
@@ -44,22 +45,6 @@ const Toggle = memo(
     const [checked, setChecked] = useState(defaultChecked);
     const [focused, setFocused] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
-    const handleToggle = (e) => {
-      const checkbox = inputRef.current;
-
-      if (!checkbox) {
-        return;
-      }
-
-      if (e.target !== checkbox) {
-        e.preventDefault();
-        checkbox.focus();
-        checkbox.click();
-        return;
-      }
-
-      setChecked(checkbox?.checked);
-    };
 
     return (
       <div
@@ -67,15 +52,17 @@ const Toggle = memo(
           'react-toggle--checked': checked,
           'react-toggle--focus': focused,
           'react-toggle--disabled': disabled,
-        })}
-        role="button"
-        tabIndex={-1}
-        onClick={handleToggle}>
-        <div className="react-toggle-track">
+        })}>
+        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events */}
+        <div
+          className="react-toggle-track"
+          role="button"
+          tabIndex={-1}
+          onClick={() => inputRef.current?.click()}>
           <div className="react-toggle-track-check">{icons.checked}</div>
           <div className="react-toggle-track-x">{icons.unchecked}</div>
+          <div className="react-toggle-thumb" />
         </div>
-        <div className="react-toggle-thumb" />
 
         <input
           ref={inputRef}
@@ -84,8 +71,14 @@ const Toggle = memo(
           className="react-toggle-screenreader-only"
           aria-label="Switch between dark and light mode"
           onChange={onChange}
+          onClick={() => setChecked(!checked)}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              inputRef.current?.click();
+            }
+          }}
         />
       </div>
     );
@@ -98,11 +91,11 @@ export default function (props: Props): JSX.Element {
       switchConfig: {darkIcon, darkIconStyle, lightIcon, lightIconStyle},
     },
   } = useThemeConfig();
-  const {isClient} = useDocusaurusContext();
+  const isBrowser = useIsBrowser();
 
   return (
     <Toggle
-      disabled={!isClient}
+      disabled={!isBrowser}
       icons={{
         checked: <Dark icon={darkIcon} style={darkIconStyle} />,
         unchecked: <Light icon={lightIcon} style={lightIconStyle} />,
