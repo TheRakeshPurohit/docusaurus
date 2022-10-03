@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 0 # Needed to get the commit number with "git rev-list --count HEAD"
       - name: Set up Node
-        uses: actions/setup-node@5b949b50c3461bbcd5a540b150c368278160234a # v3
+        uses: actions/setup-node@969bd2663942d722d85b6a8626225850c2f7be4b # v3
         with:
           node-version: '16'
           cache: yarn
